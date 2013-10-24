@@ -1,0 +1,37 @@
+<div class="span6">
+    <p>
+        <h1>Upload Geofences (CSV)</h1>
+    </p>
+
+    <p>
+        Please provide a CSV with a table of all geofences you would like to be used. Provide table columns for ID, LAT, LON, PART.
+    </p>
+
+    <p>
+    <!--
+        <form action="https://whatsnear.azure-mobile.net/api/uploadgeofences" method="post"
+            enctype="multipart/form-data">
+            <label for="file">Filename:</label>
+            <input type="file" name="file" id="file"><br>
+            <input type="hidden" name="redirect" value="#">
+            <input type="submit" name="submit" value="Submit">
+        </form>
+    -->
+    </p>
+
+    <p>
+        <form ng-submit="upload()" ng-controller="GeofenceCtrl" class="form-horizontal" enctype="multipart/form-data">
+          <div class="control-group">
+            <label class="control-label">Geofences File:</label>
+            <div class="controls">
+              <input type="file" ng-model="message.geofences"  />
+            </div>
+          </div>
+          <br/>
+          <div class="well">
+            <input class="btn btn-large btn-primary" type="submit" value="Submit" />
+          </div>
+        </form>
+
+    </p>
+</div>

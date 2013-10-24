@@ -1,0 +1,26 @@
+<div class="span6">
+    <p>
+        <h1>Geofence Campaigns</h1>
+    </p>
+    <table class="table table-striped table-condensed">
+        <thead>
+        <tr>
+            <th style="min-width: 80px;">ID</th>
+            <th style="min-width: 300px;">Geofence Name</th>
+            <th style="min-width: 300px;">URL</th>
+            <!--<th style="width:20px;">&nbsp;</th>-->
+            <th style="width:20px;">&nbsp;</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr ng-repeat="c in campaign">
+            <td>{{ c.id }}</td>
+            <td>{{ c.fenceName }}</td>
+            <td>{{ c.url }}</td>
+            <!--<td><a ng-click="editCampaign(c.id)" class="btn btn-small btn-primary">edit</a></td>-->
+            <td><a ng-click="deleteCampaign(c.id)" class="btn btn-small btn-danger">delete</a></td>
+        </tr>
+        </tbody>
+    </table>
+    <a ng-click="createNewCampaign()" class="btn btn-small">create new campaign</a>
+</div>
