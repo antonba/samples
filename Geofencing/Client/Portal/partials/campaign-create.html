@@ -1,0 +1,26 @@
+<div class="container">
+    <h1>Create a new campaign</h1>
+
+    <form novalidate="novalidate" class="form-horizontal">
+        <div class="control-group">
+            <label class="control-label" for="inputFenceName">Geofence Name:</label>
+
+            <div class="controls">
+                <input type="text" id="inputFenceName" ng-model="campaign.fenceName" placeholder="name"/>
+            </div>
+        </div>
+        <div class="control-group">
+            <label class="control-label" for="inputUrl">URL:</label>
+
+            <div class="controls">
+                <input type="text" id="inputUrl" ng-model="campaign.url" placeholder="url"/>
+            </div>
+        </div>
+        <br/>
+        <div class="control-group">
+            <div class="controls">
+                <a ng-click="createNewCampaign()" class="btn btn-small btn-primary">create new campaign</a>
+            </div>
+        </div>
+    </form>
+</div>
