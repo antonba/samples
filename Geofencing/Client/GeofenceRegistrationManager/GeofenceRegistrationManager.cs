@@ -1,80 +1,63 @@
-﻿using System;
+﻿using Microsoft.WindowsAzure.MobileServices;
+using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.WindowsAzure.Messaging;
-using Windows.Devices.Geolocation.Geofencing;
-
 
 namespace WindowsAzure
 {
-    public class GeofenceRegistrationManager
+    public class GeofenceRegistrationManager : GeofenceLoaderAction
     {
-        private GeofenceMonitor monitor;
-        private NotificationHub hub;
-        private string pushChannel;
-        private List<string> tags;
-        private const string triggerFenceName = "WindowsAzure.TriggerFence";
+        private MobileServiceClient client;
 
-        public GeofenceRegistrationManager(string hubName, string hubConnectionString, string pushChannel)
+        private ObservableCollection<Campaign> campaigns = new ObservableCollection<Campaign>();
+        public ObservableCollection<Campaign> Campaigns
         {
-            this.tags = new List<string>();
-            this.hub = new NotificationHub(hubName, hubConnectionString);
-            this.pushChannel = pushChannel;
-            this.monitor = GeofenceMonitor.Current;
-            this.monitor.GeofenceStateChanged += OnGeofenceStateChangedHandler;    
-        }
-
-        private Registration GenerateRegistration()
-        {
-            string[] sanitizedTags = tags.ToArray();
-            for (int i = 0; i < sanitizedTags.Length; i++)
+            get
             {
-                sanitizedTags[i] = sanitizedTags[i].Replace(" ", "_");
+                return this.campaigns;
             }
-
-            return new Registration(this.pushChannel, sanitizedTags);
         }
 
-        public async void OnGeofenceStateChangedHandler(GeofenceMonitor sender, object e)
+        public GeofenceRegistrationManager(Uri applicationUri, string key)
         {
-            bool tagsChanged = false;
-            var reports = sender.ReadReports();
+            this.client = new MobileServiceClient(applicationUri, key);
+            this.campaigns = new ObservableCollection<Campaign>();
+        }
 
-          
-                foreach (GeofenceStateChangeReport report in reports)
+        public override async void EnterGeofence(string name)
+        {
+            try
+            {
+                var campaigns = await client.InvokeApiAsync<EnterRequest, List<Campaign>>("entering",
+                    new EnterRequest { FenceName = name });
+                Campaign it = campaigns.FirstOrDefault();
+                if (it != null)
                 {
-                    GeofenceState state = report.NewState;
-
-                    Geofence geofence = report.Geofence;
-
-                    if (!String.Equals(geofence.Id, triggerFenceName))
-                    {
-
-                        if (state == GeofenceState.Removed)
-                        {
-
-
-                        }
-                        else if (state == GeofenceState.Entered)
-                        {
-                            tags.Add(geofence.Id);
-                            tagsChanged = true;
-                        }
-                        else if (state == GeofenceState.Exited)
-                        {
-                            tags.RemoveAll(x => String.Equals(x, geofence.Id));
-                            tagsChanged = true;
-                        }
-                    }
+                    Campaigns.Add(it);
                 }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+            }
+        }
 
-                if (tagsChanged)
-                {
-                    await hub.RegisterAsync(GenerateRegistration());
-                }
-            
+        public override void ExitGeofence(string name)
+        {
+            try
+            {
+                //await client.InvokeApiAsync<List<Campaign>>("leaving", HttpMethod.Post,
+                //    new Dictionary<string, string> { { "fenceName", name } });
+
+                Campaigns.Remove(
+                    Campaigns.Where(c => String.Equals(c.FenceName, name)).FirstOrDefault());
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+            }
         }
     }
 }

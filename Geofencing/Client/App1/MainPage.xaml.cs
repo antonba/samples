@@ -10,6 +10,7 @@ using Windows.Foundation;
 using Windows.Foundation.Collections;
 using Windows.UI;
 using Windows.UI.Core;
+using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -36,6 +37,7 @@ namespace App1
         public MainPage()
         {
             this.InitializeComponent();
+            this.myMap.Credentials = MobileSecrets.BingMapCredentials;
 
             currentLocationPushpin = new Pushpin();
             currentLocationPushpin.Background = new SolidColorBrush(Colors.Black);
@@ -47,18 +49,40 @@ namespace App1
             locator.PositionChanged += locator_PositionChanged;
 
             // Set up geofence loader
-            this.loader = new GeofenceLoader(new Uri("http://localhost:1337"));
+            this.loader = new GeofenceLoader(
+                new Uri(MobileSecrets.MobileServiceUrl),
+                MobileSecrets.MobileServiceKey
+                );
             loader.PropertyChanged += loader_PropertyChanged;
 
-            // Set up geofence NH registration manager
-            // Fake channel because otherwise it won't work in simulator
-            var channel = "https://bn1.notify.windows.com/?token=AgYAAADCM0ruyKKQnGeNHSWDfdqWh9aphe244WGh0%";
+            // Set up geofence registration manager       
             this.registrationManager = new GeofenceRegistrationManager(
-                MobileSecrets.NotificationHubName,
-                MobileSecrets.NotificationHubConnectionString,
-                channel);
+                new Uri(MobileSecrets.MobileServiceUrl),
+                MobileSecrets.MobileServiceKey);
+            registrationManager.Campaigns.CollectionChanged += Campaigns_CollectionChanged;
 
+            loader.Actions.Add(registrationManager);
         }
+
+        async void Campaigns_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                Campaign c = registrationManager.Campaigns.FirstOrDefault();
+                if (c != null)
+                {
+                    offerUrl.NavigateUri = c.Url;
+                    offerUrl.Content = "Redeem";
+                }
+                else
+                {
+                    offerUrl.NavigateUri = null;
+                    offerUrl.Content = String.Empty;
+                }
+            });
+        }
+
+     
 
         async protected override void OnNavigatedTo(NavigationEventArgs e)
         {
@@ -126,8 +150,6 @@ namespace App1
             }
         }
 
-      
-
         private static double ToDegrees(double radians)
         {
             return radians * (180 / Math.PI);
@@ -161,6 +183,18 @@ namespace App1
             }
 
             return destination;
+        }
+
+        private void GoryDetailsClick(object sender, RoutedEventArgs e)
+        {
+            mapView.Visibility = Visibility.Visible;
+            homeView.Visibility = Visibility.Collapsed;
+        }
+
+        private void HappyPlaceClick(object sender, RoutedEventArgs e)
+        {
+            mapView.Visibility = Visibility.Collapsed;
+            homeView.Visibility = Visibility.Visible;
         }
 
     }

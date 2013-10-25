@@ -1,38 +1,34 @@
-﻿using System;
+﻿using Microsoft.WindowsAzure.MobileServices;
+using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using Windows.Devices.Geolocation;
 using Windows.Devices.Geolocation.Geofencing;
-using System.IO;
-using Newtonsoft.Json.Linq;
-using Windows.Devices;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 
 namespace WindowsAzure
 {
     public class GeofenceLoader : INotifyPropertyChanged
     {
-        private HttpClient client;
+        private MobileServiceClient client;
         private GeofenceMonitor monitor;
+        private IMobileServiceTable<ServerGeofence> table;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
-        public GeofenceLoader(Uri serviceAddress)
+        public GeofenceLoader(Uri applicationUri, string key)
         {
-            this.client = new HttpClient
-            {
-                BaseAddress = serviceAddress
-                
-            };
+            this.client = new MobileServiceClient(applicationUri, key);
+            this.table = client.GetTable<ServerGeofence>();
             this.monitor = GeofenceMonitor.Current;
-            this.monitor.GeofenceStateChanged += OnGeofenceStateChangedHandler;       
+            this.monitor.Geofences.Clear();
+            this.monitor.GeofenceStateChanged += OnGeofenceStateChangedHandler;
+            this.monitor.StatusChanged += (sender, args) => Debug.WriteLine(sender.Status.ToString());
             this.TriggerFence = null;
             this.ArmedFences = new List<Geofence>();
-
+            this.Actions = new List<GeofenceLoaderAction>();
         }
 
         private void NotifyPropertyChanged([CallerMemberName] String propertyName = "")
@@ -61,6 +57,24 @@ namespace WindowsAzure
             }
         }
 
+        private List<GeofenceLoaderAction> loaderActions;
+        public List<GeofenceLoaderAction> Actions
+        {
+            get
+            {
+                return this.loaderActions;
+            }
+            private set
+            {
+                if (value != this.loaderActions)
+                {
+                    this.loaderActions = value;
+                    NotifyPropertyChanged();
+                }
+
+            }
+        }
+
         private List<Geofence> armedFences;
         public List<Geofence> ArmedFences
         {
@@ -83,42 +97,47 @@ namespace WindowsAzure
         {
             Geolocator g = new Geolocator();
             Geoposition pos = await g.GetGeopositionAsync();
-            var here = (pos).ToBasicGeoposition();
+            var here = pos.Coordinate.Point.Position;
             RefreshTriggerFence(here);
             RefreshArmedFences(here);
         }
 
-        public async void RefreshArmedFences(BasicGeoposition location)
+        private async void RefreshArmedFences(BasicGeoposition location)
         {
             // Obtain the list of fences
-            List<Geofence> result = new List<Geofence>();
-            string query = String.Format("/?lat={0}&lon={1}", location.Latitude, location.Longitude);
-            var response = await client.GetAsync(new Uri(query, UriKind.Relative));
-            response.EnsureSuccessStatusCode();
-            JArray results = JArray.Parse(await response.Content.ReadAsStringAsync());
-            foreach (JObject o in results)
+            string partition = "lat" + Math.Floor(location.Latitude * 100).ToString() +
+                "lon" + Math.Floor(location.Longitude * 100).ToString();
+
+            var response = await table.Where(f => f.Partition == partition).
+                ToListAsync();
+
+            List<Geofence> result = response.Select<ServerGeofence, Geofence>(f =>
             {
-                string name = o["name"].ToString();
-                if(name.Length > 63){
-                    name = name.Substring(0, 60) + "...";
-                } else if (name.Length == 0){
+                string name = f.Name;
+                if (name.Length > 63)
+                {
+                    name = name.Substring(0, 60);
+                }
+                else if (name.Length == 0)
+                {
                     name = "Unknown";
                 }
 
-                result.Add(new Geofence(
+                return new Geofence(
                     name,
                     new Geocircle(
                         new BasicGeoposition
                         {
                             Altitude = 0,
-                            Latitude = o["lat"].ToObject<double>(),
-                            Longitude = o["lon"].ToObject<double>()
+                            Latitude = f.Lat,
+                            Longitude = f.Lon
                         },
                         100),
-                    MonitoredGeofenceStates.Exited|MonitoredGeofenceStates.Entered,
+                    MonitoredGeofenceStates.Exited | MonitoredGeofenceStates.Entered,
                     false,
-                    TimeSpan.FromSeconds(1)));
-            }
+                    TimeSpan.FromSeconds(1));
+            }).ToList<Geofence>();
+
 
             // Arm them in the geofence monitor
             monitor.Geofences.Clear();
@@ -129,61 +148,81 @@ namespace WindowsAzure
                 {
                     monitor.Geofences.Add(f);
                 }
-                catch (Exception) {
-                    // Could not add fence, silently ignore
+                catch (Exception e)
+                {
+                    Debug.WriteLine("Could not add geofence: {0}", e.ToString());
                 }
             }
 
             ArmedFences = result;
-            
         }
 
-      
-
-        public void OnGeofenceStateChangedHandler(GeofenceMonitor sender, object e)
+        private void OnGeofenceStateChangedHandler(GeofenceMonitor sender, object e)
         {
             var reports = sender.ReadReports();
+            Dictionary<string, GeofenceState> reportsBuffer = new Dictionary<string, GeofenceState>();
 
             foreach (GeofenceStateChangeReport report in reports)
             {
                 GeofenceState state = report.NewState;
-
                 Geofence geofence = report.Geofence;
-
-                
                 if (state == GeofenceState.Removed)
                 {
-                   
-                    
                 }
                 else if (state == GeofenceState.Entered)
                 {
+                    reportsBuffer.Add(geofence.Id, GeofenceState.Entered);
                 }
                 else if (state == GeofenceState.Exited)
                 {
-                    if(String.Equals(geofence.Id, TriggerFence.Id)){
+                    reportsBuffer.Add(geofence.Id, GeofenceState.Exited);
+                }
+            }
+
+            foreach (KeyValuePair<string, GeofenceState> report in reportsBuffer)
+            {
+                switch (report.Value)
+                {
+                    case GeofenceState.Entered:
+                        foreach (GeofenceLoaderAction action in Actions)
+                        {
+                            action.EnterGeofence(report.Key);
+                        }
+                        break;
+                    case GeofenceState.Exited:
                         // They have left the area for which we have fences loaded, 
-                        // trigger a reload
-                        BasicGeoposition current = sender.LastKnownGeoposition.ToBasicGeoposition();
-                        RefreshTriggerFence(current);
-                        RefreshArmedFences(current);
-                    }
+                        // trigger a refresh
+                        if (String.Equals(report.Key, TriggerFence.Id))
+                        {
+                            BasicGeoposition current = sender.LastKnownGeoposition.Coordinate.Point.Position;
+                            RefreshTriggerFence(current);
+                            RefreshArmedFences(current);
+                        }
+                        else
+                        {
+                            foreach (GeofenceLoaderAction action in Actions)
+                            {
+                                action.ExitGeofence(report.Key);
+                            }
+                        }
+                        break;
                 }
             }
         }
 
-        public void RefreshTriggerFence(BasicGeoposition location)
+        private void RefreshTriggerFence(BasicGeoposition location)
         {
             // The partition size on the server is a rectangle with sides of 0.01 degree, 
             // so draw a circle to the closest edge of the rectangle           
-           
+
             double closestLat = Math.Round(location.Latitude, 2);
             double distanceToClosestLat = Math.Abs(closestLat - location.Latitude);
             double closestLon = Math.Round(location.Longitude, 2);
-            double distanceToClosestLon =  Math.Abs(closestLon - location.Longitude);
+            double distanceToClosestLon = Math.Abs(closestLon - location.Longitude);
 
             BasicGeoposition closestEdge = new BasicGeoposition();
-            if(distanceToClosestLon < distanceToClosestLat){
+            if (distanceToClosestLon < distanceToClosestLat)
+            {
                 closestEdge.Latitude = location.Latitude;
                 closestEdge.Longitude = closestLon;
             }
@@ -210,7 +249,7 @@ namespace WindowsAzure
                             Longitude = location.Longitude
                         },
                         distance
-                    ), 
+                    ),
                     MonitoredGeofenceStates.Exited,
                     false,
                     TimeSpan.FromSeconds(1));
